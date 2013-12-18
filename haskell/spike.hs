@@ -57,6 +57,55 @@ eqoptimizer2 = do
 	putStrLn $ "optimized_set: " ++ show optimized_eq
 	putStrLn $ "set_hp: " ++ show (set_hp optimized_eq)
 
+{-
+	eqoptimizer trial #3
+
+	As in #2, but add mana to Item and score each set using a weights for hp and mana
+-}
+
+data Item2 = Item2 {
+	itemName2 :: String,
+	itemHp2 :: Int,
+	itemMana :: Int
+} deriving (Show)
+
+data Weights = Weights {
+	hpWeight :: Int,
+	manaWeight :: Int
+} deriving (Show)
+
+score_item :: Weights -> Item2 -> Int
+score_item weights item = (hpWeight weights) * (itemHp2 item) + (manaWeight weights) * (itemMana item)
+
+score_set :: Weights -> [Item2] -> Int
+score_set weights items = sum (map (score_item weights) items)
+
+possible_eq3 :: [[Item2]]
+possible_eq3 = [
+	[Item2 "Diamond orb of Tyche" 45 0, Item2 "Rod of dragonhide" 30 20],
+	[Item2 "A bracelet of strange silvery mist" 37 20, Item2 "A blue-steel bracer from bloodstone" 48 0]]
+
+-- Given a list of each location's items (a sublist), return all permutations of the eq, ie the cartesian product of all the sublists.
+-- I've since found out that this is available with "sequence". In fact, there's no reason for this type signature
+-- to specificy Item2, nor for the function to be named eq_permutations. It's an anonymous cartesian product of n lists.
+eq_permutations :: [[Item2]] -> [[Item2]]
+eq_permutations [] = []
+eq_permutations (eqs_this_location:[]) = [[item] | item <- eqs_this_location]
+eq_permutations (eqs_this_location:eqs_other_locations) = [ item:permutation| item <- eqs_this_location, permutation <- (eq_permutations eqs_other_locations)]
+-- ie sequence possible_eq3 == eq_permutations possible_eq3, if Item2 derived equality
+
+arbitrary_weights = Weights 10 10
+
+eqoptimizer3 = do
+	putStrLn "eqoptimizer trial #3"
+	putStrLn $ "arbitrary weights: " ++ show(arbitrary_weights)
+	putStrLn "all scored combinations of eq:"
+	mapM_ print [(eq_set, score_set arbitrary_weights eq_set) | eq_set <- (eq_permutations possible_eq3)]
+	let best_set = maximumBy (comparing (score_set arbitrary_weights)) (eq_permutations possible_eq3)
+	print "best set:"
+	print (best_set, score_set arbitrary_weights best_set)
+
 main = do
 	eqoptimizer1
 	eqoptimizer2
+	eqoptimizer3
