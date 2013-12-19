@@ -44,7 +44,7 @@ countItemsOfType typeToCount items = length (filter (\item -> itemType item == t
 
 okDhAndQoCount :: [Item] -> Bool
 okDhAndQoCount items
-	| dhCount > 2 || qoCount > 2 = False
+	| dhCount > 2 || qoCount > 1 = False
 	| otherwise = True
 	where 
 		dhCount = countItemsOfType DH items
