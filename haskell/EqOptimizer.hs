@@ -57,18 +57,20 @@ okDhAndQoCount items
 optimizeOld :: Weights -> [[Item]] -> [Item]
 optimizeOld weights items = maximumBy (comparing (scoreItems weights)) (filter okDhAndQoCount (sequence items))
 
--- recursively goes through each element of the cross product, propagating the best sets
+-- Recurse through each element of the cross product, propagating the best sets
 -- back up the call stack. 
--- Inferior sets are discarded immediately, using O(|items|) memory, ie the maximum stack depth
+-- Inferior sets are discarded immediately, using O(|items|) memory, ie the maximum stack depth.
+-- Optimize by aborting a subtree as soon as the partial set fails constraints
 optimize :: Weights -> [[Item]] -> [Item]
 optimize weights items = optimizeInternal 0 weights items []
 	where
 		parallelCutoff = 5 :: Int
 		optimizeInternal :: Int -> Weights -> [[Item]] -> [Item] -> [Item]
-		optimizeInternal _ _ [] candidateSet = candidateSet
-		optimizeInternal depth weights (eqLoc:eqLocs) partialCandidateSet = 
-			maximumBy (comparing (scoreItems weights)) 
-				((if depth < parallelCutoff then parMap rpar else map) (\eq -> optimizeInternal (depth+1) weights eqLocs (eq:partialCandidateSet)) eqLoc)
+		optimizeInternal _ _ [] candidateSet = if okDhAndQoCount candidateSet then candidateSet else []
+		optimizeInternal depth weights (eqLoc:eqLocs) partialCandidateSet =
+			if not (okDhAndQoCount partialCandidateSet) then [] else do
+				let candidateSets = (if depth < parallelCutoff then parMap rpar else map) (\eq -> optimizeInternal (depth+1) weights eqLocs (eq:partialCandidateSet)) eqLoc
+				if length candidateSets > 0 then maximumBy (comparing (scoreItems weights)) candidateSets else []
 
 {-
    format for one item:
@@ -78,7 +80,7 @@ optimize weights items = optimizeInternal 0 weights items []
    hr
    dr
    ss
-   [DH | QO] description"
+   [DH | QO] name"
 -}
 
 parseItemType :: String -> ItemType
@@ -133,8 +135,8 @@ main = do
 		parseEqFile (lines shieldEq),
 		parseEqFile (lines aboutEq),
 		parseEqFile (lines waistEq),
-		-- parseEqFile (lines wristOneEq),
-		-- parseEqFile (lines wieldEq),
+		parseEqFile (lines wristOneEq),
+		parseEqFile (lines wieldEq),
 		parseEqFile (lines heldEq)
 		]
 	let default_weights = Weights 1 1 0 8 0
