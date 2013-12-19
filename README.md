@@ -26,7 +26,7 @@ Yay! Unfortunately `sequence items` evaluates the cartesian product of the equip
 
 ### Space Massacre
 
-My problem is that I don't start evaluating equipment sets until they're all built. It's like picking your favorite meal by eating twenty different plates in one sitting, and then trying to form an opinion. *Burp!*
+My problem is that I don't start evaluating equipment sets until they're all built. It's like picking your favorite meal by eating twenty different plates in one sitting, and then trying to form an opinion.
 
 I need to swap `sequence items` for a recursive approach that will keep track of the current best equipment set and forget the losers asap.
 
@@ -40,14 +40,14 @@ optimize2 weights items = optimizeInternal weights items []
             optimizeInternal _ [] candidateSet = candidateSet
             optimizeInternal weights (eqLoc:eqLocs) partialCandidateSet = 
                     maximumBy (comparing (scoreItems weights)) 
-                        (map (\eq -> optimizeInternal weights eqLocs (eq:partialCandidateSet)) eqLoc)
+                       (map (\eq -> optimizeInternal weights eqLocs (eq:partialCandidateSet)) eqLoc)
 ```
 
 Feeling triumphant, I hit 'run' and waited for my first real results. And waited. Boy, my software is sophisticated - it takes TIME to run. Approximately forever.
 
 ### Time to make it work
 
-`optimize2` takes ~hours to run, crap. This app is supposed to help, and waiting hours between results isn't helpful. In fact, the app is supposed to be run dozens of times in rapid succession, with tuning parameters. That'll take a week.
+`optimize2` takes ~hours to run, crap. This app is supposed to help, and waiting hours between results isn't helpful. In fact, the app is supposed to be run dozens of times in rapid succession using tuning parameters.
 
 So I dug for compiler flags, easy enough:
 
@@ -66,7 +66,7 @@ data Item = Item {
 	...
 ```
 
-The exclaimation marks (called bangs in Haskell) denote strictness, before it was `itemName :: String,`. In imperative terms, strictness means the entire data structure is instantiated into memory as soon as you have a reference to it. What? "Uhhh that's kind of how it works, I didn't know there was an alternative?" In Haskell, you can possess a "reference" to an "object instance" without the object actually being allocated in memory (or its attributes even being computed). I don't particularly grok the upside, yet, but at a basic level it uses less memory with some computational overhead to manage the laziness.
+The exclaimation marks (called bangs in Haskell) denote strictness, the prior format being `itemName :: String,`. In imperative terms, strictness means the entire data structure is instantiated into memory as soon as you have a reference to it. What? "Uh, isn't that how it always works? I didn't know there was an alternative?" In Haskell, you can possess a "reference" to an "object instance" without the object actually being allocated in memory (or its attributes even being computed). I don't particularly grok the upside, yet, but at a basic level it uses less memory with added computational overhead to manage the laziness.
 
 Strictness and a few other tricks have me down to ~90 seconds, still too slow for users.
 
@@ -76,25 +76,28 @@ Still too slow at 90s. You might have noticed that `optimize1` contained a claus
 
 Equipment sets in Medievia are mostly regular gear, but every player gets up to two pieces of dragonhide (DH) equipment, and one quest object (QO).
 
-The algorithm is broken if it permits a winning set with too many DH or QO. Ok, fixed. While I'm at it, since `optimize2` builds subtrees of partial equipment sets, why not short-circuit and abandon a subtree as soon as it violates the DH/QO rule?
+The algorithm is broken if it permits a winning set with too many DH or QO. Let me fix that really quick... While I'm at it, since `optimize2` builds subtrees of partial equipment sets, why not short-circuit and abandon a subtree as soon as it violates the DH/QO rule?
 
 ```haskell
 optimize3 :: Weights -> [[Item]] -> [Item]
 optimize3 weights items = optimizeInternal weights items []
 	where
-		optimizeInternal :: Weights -> [[Item]] -> [Item] -> [Item]
-		optimizeInternal _ [] candidateSet = if okDhAndQoCount candidateSet then candidateSet else []
-		optimizeInternal weights (eqLoc:eqLocs) partialCandidateSet =
-			if not (okDhAndQoCount partialCandidateSet) then [] else do
-				let candidateSets = map (\eq -> optimizeInternal (depth+1) weights eqLocs (eq:partialCandidateSet)) eqLoc
-				if length candidateSets > 0 then maximumBy (comparing (scoreItems weights)) candidateSets else []
+	optimizeInternal :: Weights -> [[Item]] -> [Item] -> [Item]
+	optimizeInternal _ [] candidateSet = 
+		if okDhAndQoCount candidateSet then candidateSet else []
+	optimizeInternal weights (eqLoc:eqLocs) partialCandidateSet =
+		if not (okDhAndQoCount partialCandidateSet) then [] else do
+			let candidateSets = map (\eq -> optimizeInternal (depth+1) weights
+									eqLocs (eq:partialCandidateSet)) eqLoc
+			if length candidateSets > 0 then 
+				maximumBy (comparing (scoreItems weights)) candidateSets else []
 ```
 
 BAM, it turns out that for reasonble equipment, ~80% of the recursion tree can be skipped. Instant win from 90s down to 18s.
 
 ### Joyous Parallelism
 
-At the time of this writing, `optimize` runs in about 8 seconds. I'm proud of that speed-up, from "forever" to 8 seconds.
+At the time of this writing, `optimize` runs in about 8 seconds. I'm proud of that run time, from "forever" to 8 seconds.
 
 This section's title isn't sarcasm. Haskell has really cool, insanely easy to use parallelism[1]. I actually started investigating parallelism while the app was still taking 90s. The number of cores used in the `optimize` computation doubled from 1 to 2 (on a 2-core virtual machine), and the runtime halved to 45s.
 
@@ -116,9 +119,9 @@ fib 1 = 1
 fib n = ((fib (n-2)) `using` rpar) + ((fib (n-1)) `using` rpar)
 ```
 
-It looks weird, but `(x \`using\` rpar)` just means that the haskell runtime has the option (but not obligation) to evaluate `x` on another core. We say that `x` is a *spark*, and *Parallel and Concurrent Programming in Haskell* says:
+It looks weird, but `(x using rpar)` just means that the haskell runtime has the option (but not obligation) to evaluate `x` on another core. We say that `x` is a *spark*:
 
-*The argument to `rpar` is called a **spark**. The runtime collects sparks in a pool and uses this as a source of work when there are spare processors available, using a technique called **work stealing**. Sparks may be evaluated at some point in the future, or they might not—it all depends on whether there is a spare core available. Sparks are very cheap to create: `rpar` essentially just writes a pointer to the expression into an array.*
+*The argument to `rpar` is called a spark. The runtime collects sparks in a pool and uses this as a source of work when there are spare processors available, using a technique called work stealing. Sparks may be evaluated at some point in the future, or they might not—it all depends on whether there is a spare core available. Sparks are very cheap to create: `rpar` essentially just writes a pointer to the expression into an array.* - Parallel and Concurrent Programming in Haskell
 
 Sparks enable parallelism AND are cheap, yay!  But there's a few more tricks to regulating spark creation (cheap ain't free), so here's the final version of `optimize` I am currently using:
 
@@ -129,11 +132,16 @@ optimize4 weights items = optimizeInternal 0 weights items []
 	where
 		parallelCutoff = 5 :: Int
 		optimizeInternal :: Int -> Weights -> [[Item]] -> [Item] -> [Item]
-		optimizeInternal _ _ [] candidateSet = if okDhAndQoCount candidateSet then candidateSet else []
+		optimizeInternal _ _ [] candidateSet = 
+			if okDhAndQoCount candidateSet then candidateSet else []
 		optimizeInternal depth weights (eqLoc:eqLocs) partialCandidateSet =
 			if not (okDhAndQoCount partialCandidateSet) then [] else do
-				let candidateSets = (if depth < parallelCutoff then parMap rpar else map) (\eq -> optimizeInternal (depth+1) weights eqLocs (eq:partialCandidateSet)) eqLoc
-				if length candidateSets > 0 then maximumBy (comparing (scoreItems weights)) candidateSets else []
+				let candidateSets = 
+					(if depth < parallelCutoff then parMap rpar else map) 
+					(\eq -> optimizeInternal (depth+1) weights eqLocs (eq:partialCandidateSet))
+				 	eqLoc
+				if length candidateSets > 0 then maximumBy (comparing (scoreItems weights)) 
+				candidateSets else []
 ```
 
 Next up, my first haskell cli.

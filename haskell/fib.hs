@@ -1,7 +1,11 @@
+import Control.Parallel.Strategies
 
+fibp 0 = 0
+fibp 1 = 1
+fibp n = ((fibp (n-2)) `using` rpar) + ((fibp (n-1)) `using` rpar)
 
 fibs = 0 : 1 : zipWith (+) fibs (tail fibs)
-fibs2 = 0 : 1 : [ a+b | a <- fibs2 | b <- tail fibs2 ]
+-- fibs2 = 0 : 1 : [ a+b | a <- fibs2 | b <- tail fibs2 ]
 fibs3 = 0 : scanl (+) 1 fibs3
 
 exponential_fib 0 = 0
@@ -13,6 +17,9 @@ memoized_fib = (map fib [0 ..] !!)
    where fib 0 = 0
          fib 1 = 1
          fib n = memoized_fib (n-2) + memoized_fib (n-1)
+
+main = do
+	putStrLn "main"
 
 {-  fibs = 0 : 1 : zipWith (+) fibs (tail fibs)
 	fibs = 0 : 1 : ((+) 0 1 : zipWith (+) (tail fibs) (tail (tail fibs)))
