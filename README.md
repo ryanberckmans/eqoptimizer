@@ -3,12 +3,12 @@
 
 Character min-maxing for the game Medievia.com.
 
-EqOptimizer outputs the best equipment set, given a list of possible equipment and character preferences.
+EqOptimizer outputs the player best equipment set given a list of possible equipment and character preferences.
 
 
 # Haskell
 
-I'm implementing EqOptimizer in haskell for fun, my first time working with haskell.
+I'm implementing EqOptimizer in haskell for fun. My first time working with haskell :-).
 
 ## Optimization
 
@@ -16,27 +16,32 @@ The core of EqOptimizer is an optimization function that goes through all combin
 
 I was pretty happy when the first pass was concise and working:
 
-	optimize1 :: Weights -> [[Item]] -> [Item]
-	optimize1 weights items = maximumBy (comparing (scoreItems weights)) (filter okDhAndQoCount (sequence items))
+```haskell
+optimize1 :: Weights -> [[Item]] -> [Item]
+optimize1 weights items = maximumBy (comparing (scoreItems weights)) 
+								(filter okDhAndQoCount (sequence items))
+```
 
-Yay! Unfortunately `sequence items` evaluates the cartesian product of the equipment for each wearable location, which is about 100 billion records for my (literally modest) dataset. This uses `O(2^(# of locations))` memory - that's all of it. So my computer blew up.
+Yay! Unfortunately `sequence items` evaluates the cartesian product of the equipment for each wearable location, which is about 100 billion records for my (literally modest) dataset. This uses `O(2^(# of locations))` memory - all the memory. So my computer blew up.
 
 ### Space Massacre
 
-My problem is that I don't start evaluating equipment sets until they're all built. It's like picking your favorite meal by eating twenty different plates in one sitting, and then trying to form an opinion. *Burp*
+My problem is that I don't start evaluating equipment sets until they're all built. It's like picking your favorite meal by eating twenty different plates in one sitting, and then trying to form an opinion. *Burp!*
 
 I need to swap `sequence items` for a recursive approach that will keep track of the current best equipment set and forget the losers asap.
 
 A bit of head scratching and I had something like this:
 
-	optimize2 :: Weights -> [[Item]] -> [Item]
-	optimize2 weights items = optimizeInternal weights items []
-	        where
-	            optimizeInternal :: Weights -> [[Item]] -> [Item] -> [Item]
-	            optimizeInternal _ [] candidateSet = candidateSet
-	            optimizeInternal weights (eqLoc:eqLocs) partialCandidateSet = 
-	                    maximumBy (comparing (scoreItems weights)) 
-	                            (map (\eq -> optimizeInternal weights eqLocs (eq:partialCandidateSet)) eqLoc)
+```haskell
+optimize2 :: Weights -> [[Item]] -> [Item]
+optimize2 weights items = optimizeInternal weights items []
+        where
+            optimizeInternal :: Weights -> [[Item]] -> [Item] -> [Item]
+            optimizeInternal _ [] candidateSet = candidateSet
+            optimizeInternal weights (eqLoc:eqLocs) partialCandidateSet = 
+                    maximumBy (comparing (scoreItems weights)) 
+                        (map (\eq -> optimizeInternal weights eqLocs (eq:partialCandidateSet)) eqLoc)
+```
 
 Feeling triumphant, I hit 'run' and waited for my first real results. And waited. Boy, my software is sophisticated - it takes TIME to run. Approximately forever.
 
@@ -46,16 +51,20 @@ Feeling triumphant, I hit 'run' and waited for my first real results. And waited
 
 So I dug for compiler flags, easy enough:
 
-	ghc -O2 -make -main-is EqOptimizer EqOptimizer.hs
+```shell
+ghc -O2 -make -main-is EqOptimizer EqOptimizer.hs
+```
 
 Great, `-O2` sped it up 10x or something. However, `forever / 10 ~= 30-60+ minutes`, so I'm not out of the woods yet. More like still lost in a new part of the woods.
 
 I found out that you can annotate Haskell datatypes as 'strict', which means any expression of that type will be evaluated immediately, instead of waiting until its needed:
 
-	data Item = Item {
-		itemName :: !String,
-		itemHp :: !Int,
-		...
+```haskell
+data Item = Item {
+	itemName :: !String,
+	itemHp :: !Int,
+	...
+```
 
 The exclaimation marks (called bangs in Haskell) denote strictness, before it was `itemName :: String,`. In imperative terms, strictness means the entire data structure is instantiated into memory as soon as you have a reference to it. What? "Uhhh that's kind of how it works, I didn't know there was an alternative?" In Haskell, you can possess a "reference" to an "object instance" without the object actually being allocated in memory (or its attributes even being computed). I don't particularly grok the upside, yet, but at a basic level it uses less memory with some computational overhead to manage the laziness.
 
@@ -69,15 +78,17 @@ Equipment sets in Medievia are mostly regular gear, but every player gets up to 
 
 The algorithm is broken if it permits a winning set with too many DH or QO. Ok, fixed. While I'm at it, since `optimize2` builds subtrees of partial equipment sets, why not short-circuit and abandon a subtree as soon as it violates the DH/QO rule?
 
-	optimize3 :: Weights -> [[Item]] -> [Item]
-	optimize3 weights items = optimizeInternal weights items []
-		where
-			optimizeInternal :: Weights -> [[Item]] -> [Item] -> [Item]
-			optimizeInternal _ [] candidateSet = if okDhAndQoCount candidateSet then candidateSet else []
-			optimizeInternal weights (eqLoc:eqLocs) partialCandidateSet =
-				if not (okDhAndQoCount partialCandidateSet) then [] else do
-					let candidateSets = map (\eq -> optimizeInternal (depth+1) weights eqLocs (eq:partialCandidateSet)) eqLoc
-					if length candidateSets > 0 then maximumBy (comparing (scoreItems weights)) candidateSets else []
+```haskell
+optimize3 :: Weights -> [[Item]] -> [Item]
+optimize3 weights items = optimizeInternal weights items []
+	where
+		optimizeInternal :: Weights -> [[Item]] -> [Item] -> [Item]
+		optimizeInternal _ [] candidateSet = if okDhAndQoCount candidateSet then candidateSet else []
+		optimizeInternal weights (eqLoc:eqLocs) partialCandidateSet =
+			if not (okDhAndQoCount partialCandidateSet) then [] else do
+				let candidateSets = map (\eq -> optimizeInternal (depth+1) weights eqLocs (eq:partialCandidateSet)) eqLoc
+				if length candidateSets > 0 then maximumBy (comparing (scoreItems weights)) candidateSets else []
+```
 
 BAM, it turns out that for reasonble equipment, ~80% of the recursion tree can be skipped. Instant win from 90s down to 18s.
 
@@ -89,17 +100,21 @@ This section's title isn't sarcasm. Haskell has really cool, insanely easy to us
 
 Take this fibonacci example:
 
-	fib 0 = 0
-	fib 1 = 1
-	fib n = fib (n-2) + fib (n-1)
+```haskell
+fib 0 = 0
+fib 1 = 1
+fib n = fib (n-2) + fib (n-1)
+```
 
 Haskell allows you to parallelize a function (or any evaluation) with arbitrary granularity. You can chop anything up piecemeal, right in the middle, any time.
 
 Here is the same fibonacci example, with each recursive call marked for parallelism:
 
-	fib 0 = 0
-	fib 1 = 1
-	fib n = ((fib (n-2)) `using` rpar) + ((fib (n-1)) `using` rpar)
+```haskell
+fib 0 = 0
+fib 1 = 1
+fib n = ((fib (n-2)) `using` rpar) + ((fib (n-1)) `using` rpar)
+```
 
 It looks weird, but `(x \`using\` rpar)` just means that the haskell runtime has the option (but not obligation) to evaluate `x` on another core. We say that `x` is a *spark*, and *Parallel and Concurrent Programming in Haskell* says:
 
@@ -107,17 +122,19 @@ It looks weird, but `(x \`using\` rpar)` just means that the haskell runtime has
 
 Sparks enable parallelism AND are cheap, yay!  But there's a few more tricks to regulating spark creation (cheap ain't free), so here's the final version of `optimize` I am currently using:
 
-	-- the 8-second version
-	optimize4 :: Weights -> [[Item]] -> [Item]
-	optimize4 weights items = optimizeInternal 0 weights items []
-		where
-			parallelCutoff = 5 :: Int
-			optimizeInternal :: Int -> Weights -> [[Item]] -> [Item] -> [Item]
-			optimizeInternal _ _ [] candidateSet = if okDhAndQoCount candidateSet then candidateSet else []
-			optimizeInternal depth weights (eqLoc:eqLocs) partialCandidateSet =
-				if not (okDhAndQoCount partialCandidateSet) then [] else do
-					let candidateSets = (if depth < parallelCutoff then parMap rpar else map) (\eq -> optimizeInternal (depth+1) weights eqLocs (eq:partialCandidateSet)) eqLoc
-					if length candidateSets > 0 then maximumBy (comparing (scoreItems weights)) candidateSets else []
+```haskell
+-- the 8-second version
+optimize4 :: Weights -> [[Item]] -> [Item]
+optimize4 weights items = optimizeInternal 0 weights items []
+	where
+		parallelCutoff = 5 :: Int
+		optimizeInternal :: Int -> Weights -> [[Item]] -> [Item] -> [Item]
+		optimizeInternal _ _ [] candidateSet = if okDhAndQoCount candidateSet then candidateSet else []
+		optimizeInternal depth weights (eqLoc:eqLocs) partialCandidateSet =
+			if not (okDhAndQoCount partialCandidateSet) then [] else do
+				let candidateSets = (if depth < parallelCutoff then parMap rpar else map) (\eq -> optimizeInternal (depth+1) weights eqLocs (eq:partialCandidateSet)) eqLoc
+				if length candidateSets > 0 then maximumBy (comparing (scoreItems weights)) candidateSets else []
+```
 
 Next up, my first haskell cli.
 
