@@ -2,3 +2,4 @@ classic/eqoptimizer
 */*.o
 */*.hi
 haskell/spike
+haskell/EqOptimizer
