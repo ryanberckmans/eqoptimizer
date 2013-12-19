@@ -2,33 +2,35 @@ module EqOptimizer (
 	Item, 
 	Weights, 
 	scoreItems, 
-	maxScoreItemsPermutation, 
+	optimize,
 	countItemsOfType, 
 	parseEqFile,
 	main ) where
 
+import GHC.Conc
+import Control.Parallel.Strategies
 import Data.List
 import Data.Ord
 import Data.Char
 
 data Weights = Weights {
-	hpWeight :: Int,
-	manaWeight :: Int,
-	hrWeight :: Int,
-	drWeight :: Int,
-	ssWeight :: Int
+	hpWeight :: !Int,
+	manaWeight :: !Int,
+	hrWeight :: !Int,
+	drWeight :: !Int,
+	ssWeight :: !Int
 } deriving (Show, Eq)
 
 data ItemType = Regular | DH | QO deriving (Show, Eq)
 
 data Item = Item {
-	itemName :: String,
-	itemHp :: Int,
-	itemMana :: Int,
-	itemHr :: Int,
-	itemDr :: Int,
-	itemSs :: Int,
-	itemType :: ItemType -- tbd disallow permutations with more than two DH or QO (this threshold should be configurable)
+	itemName :: !String,
+	itemHp :: !Int,
+	itemMana :: !Int,
+	itemHr :: !Int,
+	itemDr :: !Int,
+	itemSs :: !Int,
+	itemType :: !ItemType -- tbd disallow permutations with more than two DH or QO (this threshold should be configurable)
 } deriving (Show, Eq)
 
 scoreItem :: Weights -> Item -> Int
@@ -48,8 +50,25 @@ okDhAndQoCount items
 		dhCount = countItemsOfType DH items
 		qoCount = countItemsOfType QO items
 
-maxScoreItemsPermutation :: Weights -> [[Item]] -> [Item]
-maxScoreItemsPermutation weights items = maximumBy (comparing (scoreItems weights)) (filter okDhAndQoCount (sequence items))
+-- first pass optimize using 'sequence'
+-- 'sequence' explicitly (strictly? non-lazily?) generates the cross product of all eq,
+-- which consumes many gbs of memory and crashes everything :).
+-- Exponential memory usage in the number of eq locations, O(2^(|items|)
+optimizeOld :: Weights -> [[Item]] -> [Item]
+optimizeOld weights items = maximumBy (comparing (scoreItems weights)) (filter okDhAndQoCount (sequence items))
+
+-- recursively goes through each element of the cross product, propagating the best sets
+-- back up the call stack. 
+-- Inferior sets are discarded immediately, using O(|items|) memory, ie the maximum stack depth
+optimize :: Weights -> [[Item]] -> [Item]
+optimize weights items = optimizeInternal 0 weights items []
+	where
+		parallelCutoff = 5 :: Int
+		optimizeInternal :: Int -> Weights -> [[Item]] -> [Item] -> [Item]
+		optimizeInternal _ _ [] candidateSet = candidateSet
+		optimizeInternal depth weights (eqLoc:eqLocs) partialCandidateSet = 
+			maximumBy (comparing (scoreItems weights)) 
+				((if depth < parallelCutoff then parMap rpar else map) (\eq -> optimizeInternal (depth+1) weights eqLocs (eq:partialCandidateSet)) eqLoc)
 
 {-
    format for one item:
@@ -86,6 +105,7 @@ parseEqFile file
 	| otherwise = error "expected eq file to contain N*7 lines for N items"
 
 main = do
+	putStrLn $ "number of threads: " ++ show (GHC.Conc.numCapabilities)
 	lightEq <- readFile "/home/ryan/Dropbox/medievia/EqOpti/lightEq.txt"
 	fingerOneEq <- readFile "/home/ryan/Dropbox/medievia/EqOpti/fingerOneEq.txt"
 	bodyEq <- readFile "/home/ryan/Dropbox/medievia/EqOpti/bodyEq.txt"
@@ -113,12 +133,12 @@ main = do
 		parseEqFile (lines shieldEq),
 		parseEqFile (lines aboutEq),
 		parseEqFile (lines waistEq),
-		parseEqFile (lines wristOneEq),
-		parseEqFile (lines wieldEq),
+		-- parseEqFile (lines wristOneEq),
+		-- parseEqFile (lines wieldEq),
 		parseEqFile (lines heldEq)
 		]
 	let default_weights = Weights 1 1 0 8 0
-	let best_set = maxScoreItemsPermutation default_weights all_eq
+	let !best_set = optimize default_weights all_eq
 	print default_weights
 	print best_set
 	putStrLn $ "best set score: " ++ show (scoreItems default_weights best_set)
