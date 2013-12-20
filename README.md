@@ -1,16 +1,16 @@
-
 # EqOptimizer
 
 Character min-maxing for the game Medievia.com.
 
 EqOptimizer outputs the player best equipment set given a list of possible equipment and character preferences.
 
-
 # Haskell
 
 I'm implementing EqOptimizer in haskell for fun. My first time working with haskell :-).
 
 ## Optimization
+
+*This section inked on 2013/12/19*
 
 The core of EqOptimizer is an optimization function that goes through all combinations of equipment and spits out the best set.
 
