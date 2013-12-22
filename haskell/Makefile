@@ -1,6 +1,6 @@
 
 CPU_CORES=`cat /proc/cpuinfo | grep "cpu cores" | head -1 | sed -r 's/.*:\s+//'`
-GHC_FLAGS=-XBangPatterns --make -O2 -threaded -funbox-strict-fields -funfolding-use-threshold=32
+GHC_FLAGS=-Wall -XBangPatterns --make -O2 -threaded -funbox-strict-fields -funfolding-use-threshold=32
 
 all:
 	ghc --make spike.hs
