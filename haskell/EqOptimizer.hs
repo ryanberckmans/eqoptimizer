@@ -1,7 +1,9 @@
 module EqOptimizer ( 
 	Item, 
-	Weights, 
-	scoreItems, 
+	Weights,
+	Constraints, 
+	scoreItems,
+	optimizeOld, -- to prevent unused warning 
 	optimize,
 	countItemsOfType, 
 	parseEqFile,
@@ -11,7 +13,6 @@ import GHC.Conc
 import Control.Parallel.Strategies
 import Data.List
 import Data.Ord
-import Data.Char
 
 data Weights = Weights {
 	hpWeight :: !Int,
@@ -19,6 +20,20 @@ data Weights = Weights {
 	hrWeight :: !Int,
 	drWeight :: !Int,
 	ssWeight :: !Int
+} deriving (Show, Eq)
+
+{-
+	Constraints and Weights are both a collection of integers,
+	with the collection having a 1-to-1 relationship with hp/mana/hr/dr/ss.
+	Seems like there should be some reuse here, but I'm not sure what it is,
+	so I just copied Weights and renamed the variables.
+-}
+data Constraints = Constraints {
+	minHp :: !Int,
+	minMana :: !Int,
+	minHr :: !Int,
+	minDr :: !Int,
+	minSs :: !Int
 } deriving (Show, Eq)
 
 data ItemType = Regular | DH | QO deriving (Show, Eq)
@@ -42,34 +57,45 @@ scoreItems weights items = sum (map (scoreItem weights) items)
 countItemsOfType :: ItemType -> [Item] -> Int
 countItemsOfType typeToCount items = length (filter (\item -> itemType item == typeToCount) items)
 
-okDhAndQoCount :: [Item] -> Bool
-okDhAndQoCount items
+qoAndDhOk :: [Item] -> Bool
+qoAndDhOk items
 	| dhCount > 2 || qoCount > 1 = False
 	| otherwise = True
 	where 
 		dhCount = countItemsOfType DH items
 		qoCount = countItemsOfType QO items
 
+-- I'm not sure of a better way to do this than with the ugly constraintFunctions and attributeFunctions.
+-- This ugliness is probably related to Constraints being a copypaste of Weights. 
+-- I think my data problem is turning into a function problem.
+constraintsOk :: Constraints -> [Item] -> Bool
+constraintsOk constraints items = 
+	foldl1 (&&) (map (\(constraint, attribute) -> (constraint constraints) <= sum (map attribute items)) 
+		(zip constraintFunctions attributeFunctions))
+	where
+		constraintFunctions = [minHp, minMana, minHr, minDr, minSs]
+		attributeFunctions = [itemHp, itemMana, itemHr, itemDr, itemSs]
+
 -- first pass optimize using 'sequence'
 -- 'sequence' explicitly (strictly? non-lazily?) generates the cross product of all eq,
 -- which consumes many gbs of memory and crashes everything :).
 -- Exponential memory usage in the number of eq locations, O(2^(|items|)
 optimizeOld :: Weights -> [[Item]] -> [Item]
-optimizeOld weights items = maximumBy (comparing (scoreItems weights)) (filter okDhAndQoCount (sequence items))
+optimizeOld weights items = maximumBy (comparing (scoreItems weights)) (filter qoAndDhOk (sequence items))
 
 -- Recurse through each element of the cross product, propagating the best sets
 -- back up the call stack. 
 -- Inferior sets are discarded immediately, using O(|items|) memory, ie the maximum stack depth.
 -- Optimize by aborting a subtree as soon as the partial set fails constraints
-optimize :: Weights -> [[Item]] -> [Item]
-optimize weights items = optimizeInternal 0 weights items []
+optimize :: Weights -> Constraints -> [[Item]] -> [Item]
+optimize weights constraints items = optimizeInternal 0 items []
 	where
 		parallelCutoff = if GHC.Conc.numCapabilities > 1 then 5 else 0 :: Int
-		optimizeInternal :: Int -> Weights -> [[Item]] -> [Item] -> [Item]
-		optimizeInternal _ _ [] candidateSet = if okDhAndQoCount candidateSet then candidateSet else []
-		optimizeInternal depth weights (eqLoc:eqLocs) partialCandidateSet =
-			if not (okDhAndQoCount partialCandidateSet) then [] else do
-				let candidateSets = (if depth < parallelCutoff then parMap rpar else map) (\eq -> optimizeInternal (depth+1) weights eqLocs (eq:partialCandidateSet)) eqLoc
+		optimizeInternal :: Int -> [[Item]] -> [Item] -> [Item]
+		optimizeInternal _ [] candidateSet = if qoAndDhOk candidateSet && constraintsOk constraints candidateSet then candidateSet else []
+		optimizeInternal depth (eqLoc:eqLocs) partialCandidateSet =
+			if not (qoAndDhOk partialCandidateSet) then [] else do
+				let candidateSets = (if depth < parallelCutoff then parMap rpar else map) (\eq -> optimizeInternal (depth+1) eqLocs (eq:partialCandidateSet)) eqLoc
 				if length candidateSets > 0 then maximumBy (comparing (scoreItems weights)) candidateSets else []
 
 {-
@@ -106,6 +132,7 @@ parseEqFile file
 	| (length file) `mod` 7 == 0 = parseItem (take 7 file) : parseEqFile (drop 7 file)
 	| otherwise = error "expected eq file to contain N*7 lines for N items"
 
+main :: IO ()
 main = do
 	putStrLn $ "number of threads: " ++ show (GHC.Conc.numCapabilities)
 	lightEq <- readFile "/home/ryan/Dropbox/medievia/EqOpti/lightEq.txt"
@@ -140,8 +167,10 @@ main = do
 		parseEqFile (lines heldEq)
 		]
 	let default_weights = Weights 1 1 0 8 0
-	let !best_set = optimize default_weights all_eq
+	let default_constraints = Constraints 200 0 10 40 2
+	let !best_set = optimize default_weights default_constraints all_eq
 	print default_weights
+	print default_constraints
 	print best_set
 	putStrLn $ "best set score: " ++ show (scoreItems default_weights best_set)
 	putStrLn $ "best set dh#: " ++ show (countItemsOfType DH best_set)
