@@ -64,7 +64,7 @@ optimizeOld weights items = maximumBy (comparing (scoreItems weights)) (filter o
 optimize :: Weights -> [[Item]] -> [Item]
 optimize weights items = optimizeInternal 0 weights items []
 	where
-		parallelCutoff = 5 :: Int
+		parallelCutoff = if GHC.Conc.numCapabilities > 1 then 5 else 0 :: Int
 		optimizeInternal :: Int -> Weights -> [[Item]] -> [Item] -> [Item]
 		optimizeInternal _ _ [] candidateSet = if okDhAndQoCount candidateSet then candidateSet else []
 		optimizeInternal depth weights (eqLoc:eqLocs) partialCandidateSet =
