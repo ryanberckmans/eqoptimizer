@@ -13,6 +13,7 @@ import GHC.Conc
 import Control.Parallel.Strategies
 import Data.List
 import Data.Ord
+import qualified Data.Text as Text
 
 data Weights = Weights {
 	hpWeight :: !Int,
@@ -48,6 +49,8 @@ data Item = Item {
 	itemType :: !ItemType -- tbd disallow permutations with more than two DH or QO (this threshold should be configurable)
 } deriving (Show, Eq)
 
+data Location = Light | Finger | Neck | Body | Head | Legs | Feet | Hands | Arms | Shield | About | Waist | Wrist | Wield | Held
+
 scoreItem :: Weights -> Item -> Int
 scoreItem weights item = (hpWeight weights) * (itemHp item) + (manaWeight weights) * (itemMana item) + (hrWeight weights) * (itemHr item) + (drWeight weights) * (itemDr item) + (ssWeight weights) * (itemSs item)
 
@@ -80,6 +83,7 @@ constraintsOk constraints items =
 -- 'sequence' explicitly (strictly? non-lazily?) generates the cross product of all eq,
 -- which consumes many gbs of memory and crashes everything :).
 -- Exponential memory usage in the number of eq locations, O(2^(|items|)
+-- Also lacks parallelism and short-circuiting recursive subtrees that will never succeed
 optimizeOld :: Weights -> [[Item]] -> [Item]
 optimizeOld weights items = maximumBy (comparing (scoreItems weights)) (filter qoAndDhOk (sequence items))
 
@@ -88,7 +92,7 @@ optimizeOld weights items = maximumBy (comparing (scoreItems weights)) (filter q
 -- Inferior sets are discarded immediately, using O(|items|) memory, ie the maximum stack depth.
 -- Optimize by aborting a subtree as soon as the partial set fails constraints
 optimize :: Weights -> Constraints -> [[Item]] -> [Item]
-optimize weights constraints items = optimizeInternal 0 items []
+optimize weights constraints items = reverse (optimizeInternal 0 items []) -- "reverse" maintains original item order, because the items are reversed during optimization
 	where
 		parallelCutoff = if GHC.Conc.numCapabilities > 1 then 5 else 0 :: Int
 		optimizeInternal :: Int -> [[Item]] -> [Item] -> [Item]
@@ -99,7 +103,7 @@ optimize weights constraints items = optimizeInternal 0 items []
 				if length candidateSets > 0 then maximumBy (comparing (scoreItems weights)) candidateSets else []
 
 {-
-   format for one item:
+   eq file format for one item:
    "next
    hp
    mana
@@ -132,14 +136,28 @@ parseEqFile file
 	| (length file) `mod` 7 == 0 = parseItem (take 7 file) : parseEqFile (drop 7 file)
 	| otherwise = error "expected eq file to contain N*7 lines for N items"
 
-data Location = Light | Finger | Neck | Body | Head | Legs | Feet | Hands | Arms | Shield | About | Waist | Wrist | Wield | Held
-
 renderEqLocation :: (Location, Item) -> String
-renderEqLocation (Light,item) = "<used as light>      " ++ itemName item
-renderEqLocation (_,_) = "TBD"
+renderEqLocation (location, item) = (locationString location) ++ (Text.unpack (Text.strip (Text.pack (itemName item))))
+	where
+		locationString :: Location -> String
+		locationString Light   = "<used as light>      "
+		locationString Finger  = "<worn on finger>     "
+		locationString Neck    = "<worn around neck>   "
+		locationString Body    = "<worn on body>       "
+		locationString Head    = "<worn on head>       "
+		locationString Legs    = "<worn on legs>       "
+		locationString Feet    = "<worn on feet>       "
+		locationString Hands   = "<worn on hands>      "
+		locationString Arms    = "<worn on arms>       "
+		locationString Shield  = "<worn as shield>     "
+		locationString About   = "<worn about body>    "
+		locationString Waist   = "<worn about waist>   "
+		locationString Wrist   = "<worn around wrist>  "
+		locationString Wield   = "<wielded>            "
+		locationString Held    = "<held>               "
 
 	{-
-		Example set render:
+		"eq" command in Medievia
 You are using:
 <used as light>      Nothing.
 <worn on finger>     Nothing.
@@ -187,28 +205,30 @@ main = do
 	heldEq <- readFile "/home/ryan/Dropbox/medievia/EqOpti/heldEq.txt"
 
 	let all_eq = [
-		parseEqFile (lines lightEq),
-		parseEqFile (lines fingerOneEq),
-		parseEqFile (lines bodyEq),
-		parseEqFile (lines headEq),
-		parseEqFile (lines legsEq),
-		parseEqFile (lines feetEq),
-		parseEqFile (lines handsEq),
-		parseEqFile (lines armsEq),
-		parseEqFile (lines shieldEq),
-		-- parseEqFile (lines aboutEq),
-		-- parseEqFile (lines waistEq),
-		-- parseEqFile (lines wristOneEq),
-		-- parseEqFile (lines wieldEq),
-		parseEqFile (lines heldEq)
+		(Light, parseEqFile (lines lightEq)),
+		(Finger, parseEqFile (lines fingerOneEq)),
+		(Finger, parseEqFile (lines fingerOneEq)),
+		(Body, parseEqFile (lines bodyEq)),
+		(Head, parseEqFile (lines headEq)),
+		(Legs, parseEqFile (lines legsEq)),
+		(Feet, parseEqFile (lines feetEq)),
+		(Hands, parseEqFile (lines handsEq)),
+		(Arms, parseEqFile (lines armsEq)),
+		(Shield, parseEqFile (lines shieldEq)),
+		(About, parseEqFile (lines aboutEq)),
+		(Waist, parseEqFile (lines waistEq)),
+		(Wrist, parseEqFile (lines wristOneEq)),
+		(Wrist, parseEqFile (lines wristOneEq)),
+		(Wield, parseEqFile (lines wieldEq)),
+		(Held, parseEqFile (lines heldEq))
 		]
 	let default_weights = Weights 1 1 0 8 0
 	let default_constraints = Constraints 20 0 10 20 2
-	let !best_set = optimize default_weights default_constraints all_eq
+	let !best_set = optimize default_weights default_constraints (map snd all_eq)
 	print default_weights
 	print default_constraints
 	print best_set
-	print (renderEqSet [(Light, best_set !! 0)])
+	putStrLn (renderEqSet (zip (map fst all_eq) best_set))
 	putStrLn $ "best set score: " ++ show (scoreItems default_weights best_set)
 	putStrLn $ "best set dh#: " ++ show (countItemsOfType DH best_set)
 	putStrLn $ "best set qo#: " ++ show (countItemsOfType QO best_set)
