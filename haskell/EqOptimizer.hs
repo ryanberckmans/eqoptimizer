@@ -132,6 +132,42 @@ parseEqFile file
 	| (length file) `mod` 7 == 0 = parseItem (take 7 file) : parseEqFile (drop 7 file)
 	| otherwise = error "expected eq file to contain N*7 lines for N items"
 
+data Location = Light | Finger | Neck | Body | Head | Legs | Feet | Hands | Arms | Shield | About | Waist | Wrist | Wield | Held
+
+renderEqLocation :: (Location, Item) -> String
+renderEqLocation (Light,item) = "<used as light>      " ++ itemName item
+renderEqLocation (_,_) = "TBD"
+
+	{-
+		Example set render:
+You are using:
+<used as light>      Nothing.
+<worn on finger>     Nothing.
+<worn on finger>     Nothing.
+<worn around neck>    ![    nodet] the Magical Talisman of Medievia..glowing with a pale aura
+<worn around neck>    ![    nodet] the Magical Talisman of Medievia..glowing with a pale aura
+<worn on body>        ![ pristine] a lifevest(invisible)
+<worn on head>       Nothing.
+<worn on legs>       Nothing.
+<worn on feet>       Nothing.
+<worn on hands>      Nothing.
+<worn on arms>       Nothing.
+<worn as shield>     Nothing.
+<worn about body>     ![ pristine] a griffon-hide pack
+<worn about waist>   Nothing.
+<worn around wrist>  Nothing.
+<worn around wrist>  Nothing.
+<wielded>            Nothing.
+<held>                ![ pristine] a leather sachet, used for gathering herbs
+<glowing aura>        ![  any day] the gossamer image of a mithril unicorn..glowing with a pale aura
+<used as focus>       ![  any day] an Elemental Focus
+<worn on hip>         ![   ending] a Magical Pocket..glowing with a pale aura
+<worn over heart>     ![    nodet] the Spirit of Medievia..glowing with a pale aura
+	-}
+
+renderEqSet :: [(Location,Item)] -> String
+renderEqSet items = foldl1 (\partialRender renderedLocation -> partialRender ++ "\n" ++ renderedLocation) (map renderEqLocation items)
+
 main :: IO ()
 main = do
 	putStrLn $ "number of threads: " ++ show (GHC.Conc.numCapabilities)
@@ -160,18 +196,19 @@ main = do
 		parseEqFile (lines handsEq),
 		parseEqFile (lines armsEq),
 		parseEqFile (lines shieldEq),
-		parseEqFile (lines aboutEq),
-		parseEqFile (lines waistEq),
-		parseEqFile (lines wristOneEq),
-		parseEqFile (lines wieldEq),
+		-- parseEqFile (lines aboutEq),
+		-- parseEqFile (lines waistEq),
+		-- parseEqFile (lines wristOneEq),
+		-- parseEqFile (lines wieldEq),
 		parseEqFile (lines heldEq)
 		]
 	let default_weights = Weights 1 1 0 8 0
-	let default_constraints = Constraints 200 0 10 40 2
+	let default_constraints = Constraints 20 0 10 20 2
 	let !best_set = optimize default_weights default_constraints all_eq
 	print default_weights
 	print default_constraints
 	print best_set
+	print (renderEqSet [(Light, best_set !! 0)])
 	putStrLn $ "best set score: " ++ show (scoreItems default_weights best_set)
 	putStrLn $ "best set dh#: " ++ show (countItemsOfType DH best_set)
 	putStrLn $ "best set qo#: " ++ show (countItemsOfType QO best_set)
