@@ -7,7 +7,7 @@ all:
 	ghc $(GHC_FLAGS) -main-is EqOptimizer EqOptimizer.hs
 
 run: all
-	time ./EqOptimizer +RTS -N$(CPU_CORES) -s
+	time ./EqOptimizer +RTS -N$(CPU_CORES)
 
 thread-test: all
 	time ./EqOptimizer +RTS -s
