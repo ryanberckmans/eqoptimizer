@@ -87,7 +87,7 @@ optimize3 weights items = optimizeInternal weights items []
 		if okDhAndQoCount candidateSet then candidateSet else []
 	optimizeInternal weights (eqLoc:eqLocs) partialCandidateSet =
 		if not (okDhAndQoCount partialCandidateSet) then [] else do
-			let candidateSets = map (\eq -> optimizeInternal (depth+1) weights
+			let candidateSets = map (\eq -> optimizeInternal weights
 									eqLocs (eq:partialCandidateSet)) eqLoc
 			if length candidateSets > 0 then 
 				maximumBy (comparing (scoreItems weights)) candidateSets else []
