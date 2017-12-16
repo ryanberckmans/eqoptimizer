@@ -1,10 +1,9 @@
 
 CPU_CORES=`cat /proc/cpuinfo | grep "cpu cores" | head -1 | sed -r 's/.*:\s+//'`
-GHC_FLAGS=-Wall -XBangPatterns --make -O2 -threaded -funbox-strict-fields -funfolding-use-threshold=32
+GHC_FLAGS=-Wall -XBangPatterns --make -O2 -threaded -funbox-strict-fields -funfolding-use-threshold=32 -rtsopts
 
 all:
-	ghc --make spike.hs
-	ghc $(GHC_FLAGS) -main-is EqOptimizer EqOptimizer.hs
+	stack ghc -- $(GHC_FLAGS) -main-is EqOptimizer EqOptimizer.hs
 
 run: all
 	time ./EqOptimizer +RTS -N$(CPU_CORES)
